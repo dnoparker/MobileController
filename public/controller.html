@@ -88,6 +88,12 @@
             font-size: 12px;
             color: #777;
         }
+        
+        .persistent-id {
+            margin-top: 15px;
+            font-size: 12px;
+            color: #777;
+        }
     </style>
 </head>
 <body>
@@ -101,6 +107,7 @@
         </div>
         
         <div class="vector-display">x: 0.00, y: 0.00</div>
+        <div class="persistent-id">Persistent ID: -</div>
         
         <div class="connection-info">
             <div id="server-url"></div>
@@ -120,9 +127,16 @@
         const vectorDisplay = document.querySelector('.vector-display');
         const clientIdDisplay = document.getElementById('client-id');
         const serverUrlDisplay = document.getElementById('server-url');
+        const persistentIdEl = document.querySelector('.persistent-id');
         
-        // Track client ID
+        // Track client ID and persistent ID
         let clientId = null;
+        let persistentId = localStorage.getItem('persistentPlayerId');
+        
+        // Display persistent ID if available
+        if (persistentId) {
+            persistentIdEl.textContent = `Persistent ID: ${persistentId}`;
+        }
         
         // Joystick state
         let joystickActive = false;
@@ -144,11 +158,37 @@
             serverUrlDisplay.textContent = `Server: ${window.location.host}`;
             console.log('Connected with ID:', clientId);
             
-            // Test message to ensure Unity receives it
-            socket.emit('playerInput', { 
-                action: 'CONNECT'
-            });
+            // If we have a persistentId, send it along with our current ID
+            if (persistentId) {
+                console.log(`Reconnecting with persistent ID: ${persistentId}`);
+                socket.emit('playerReconnect', { 
+                    previousId: persistentId,
+                    currentId: clientId
+                });
+            } else {
+                // First time connection - generate a persistent ID
+                persistentId = generatePersistentId();
+                localStorage.setItem('persistentPlayerId', persistentId);
+                persistentIdEl.textContent = `Persistent ID: ${persistentId}`;
+                console.log(`Generated new persistent ID: ${persistentId}`);
+                
+                // Send initial connection with the persistent ID
+                socket.emit('playerInput', { 
+                    action: 'CONNECT',
+                    persistentId: persistentId
+                });
+            }
         });
+        
+        // Generate a random persistent ID
+        function generatePersistentId() {
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+            let id = 'p_';
+            for (let i = 0; i < 12; i++) {
+                id += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            return id;
+        }
         
         socket.on('disconnect', () => {
             statusEl.textContent = 'Disconnected';
@@ -160,6 +200,22 @@
             if (sendInterval) {
                 clearInterval(sendInterval);
                 sendInterval = null;
+            }
+        });
+        
+        // Listen for reconnection success
+        socket.on('reconnectionStatus', (data) => {
+            if (data.success) {
+                console.log(`Successfully reconnected to player with ID: ${data.playerId}`);
+                statusEl.textContent = 'Reconnected';
+                statusEl.style.color = '#4CAF50';
+            } else {
+                console.log(`Failed to reconnect to previous player: ${data.message}`);
+                // If reconnection failed, treat as a new connection
+                socket.emit('playerInput', { 
+                    action: 'CONNECT',
+                    persistentId: persistentId
+                });
             }
         });
         
@@ -243,7 +299,8 @@
                 socket.emit('playerInput', {
                     type: 'vector',
                     x: 0,
-                    y: 0
+                    y: 0,
+                    persistentId: persistentId
                 });
                 
                 // Clear the send interval
@@ -321,7 +378,8 @@
                 socket.emit('playerInput', {
                     type: 'vector',
                     x: joystickPosition.x,
-                    y: joystickPosition.y
+                    y: joystickPosition.y,
+                    persistentId: persistentId
                 });
             }
         }
