@@ -3,66 +3,63 @@
 
 const express = require("express");
 const http = require("http");
-const { Server } = require("socket.io");
+const socketIo = require("socket.io");
+const path = require("path");
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = socketIo(server);
 
 const PORT = process.env.PORT || 3000;
 
-app.use(express.static("public"));
+// Serve static files from the public directory
+app.use(express.static(path.join(__dirname, "public")));
 
-// Keep track of connected controllers
-const connectedControllers = new Set();
+// Store connected clients
+const clients = new Map();
 
+// Socket.io connection handling
 io.on("connection", (socket) => {
-  console.log("New controller connected:", socket.id);
+  console.log(`New client connected: ${socket.id}`);
+  clients.set(socket.id, { connected: true });
   
-  // Add to connected controllers set
-  connectedControllers.add(socket.id);
-  
-  // Send the client their ID
-  socket.emit("clientId", { id: socket.id });
-  
-  // Broadcast to Unity that a new controller has connected
-  // We send to everyone (including sender) to ensure Unity receives it
+  // Send controller connected event to Unity
   io.emit("controllerConnected", { clientId: socket.id });
   
-  // Log all currently connected controllers
-  console.log("Currently connected controllers:", Array.from(connectedControllers));
-
-  socket.on("controllerInput", (data) => {
-    // Forward input to Unity with client ID
-    const inputData = {
-      ...data,
-      clientId: socket.id
-    };
-    io.emit("inputToUnity", inputData);
-    console.log(`Input from ${socket.id}: ${data.action}`);
+  // Process controller input messages
+  socket.on("playerInput", (data) => {
+    // Log the input data we're receiving from the controller
+    console.log(`Input from ${socket.id}:`, data);
+    
+    // Forward the input to Unity
+    // For button input, data will be like: { action: "UP" }
+    // For vector input, data will be like: { type: "vector", x: 0.5, y: -0.2 }
+    io.emit("inputToUnity", { ...data, clientId: socket.id });
   });
-
+  
+  // Process Unity response messages (not used yet)
+  socket.on("unityResponse", (data) => {
+    console.log(`Response from Unity:`, data);
+    // We could send this to specific controllers if needed
+  });
+  
+  // Handle disconnection
   socket.on("disconnect", () => {
-    console.log("Disconnected:", socket.id);
+    console.log(`Client disconnected: ${socket.id}`);
+    if (clients.has(socket.id)) {
+      clients.delete(socket.id);
+    }
     
-    // Remove from connected controllers set
-    connectedControllers.delete(socket.id);
-    
-    // Broadcast to all that a controller has disconnected
+    // Send controller disconnected event to Unity
     io.emit("controllerDisconnected", { clientId: socket.id });
-    
-    // Log remaining connected controllers
-    console.log("Remaining connected controllers:", Array.from(connectedControllers));
   });
 });
 
-// Route to get all connected controllers
-app.get("/api/controllers", (req, res) => {
-  res.json({
-    controllers: Array.from(connectedControllers),
-    count: connectedControllers.size
-  });
+// Serve the controller page
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "controller.html"));
 });
 
 server.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`Server running on port ${PORT}`);
+  console.log(`Controller URL: http://localhost:${PORT}`);
 });

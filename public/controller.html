@@ -14,41 +14,40 @@
       margin: 0;
       font-family: Arial, sans-serif;
       background-color: #f0f0f0;
+      touch-action: none; /* Prevent default touch actions */
     }
     
-    .controller {
-      display: grid;
-      grid-template-areas:
-        ". up ."
-        "left . right"
-        ". down .";
-      gap: 10px;
+    .joystick-container {
+      position: relative;
+      width: 200px;
+      height: 200px;
       margin: 20px;
+      background-color: rgba(0, 0, 0, 0.1);
+      border-radius: 50%;
+      touch-action: none;
     }
     
-    button {
+    .joystick-base {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      border: 2px solid #888;
+      box-sizing: border-box;
+    }
+    
+    .joystick-thumb {
+      position: absolute;
       width: 80px;
       height: 80px;
-      font-size: 18px;
-      font-weight: bold;
-      border-radius: 50%;
-      border: none;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
       background-color: #3498db;
-      color: white;
+      border-radius: 50%;
       cursor: pointer;
       user-select: none;
-      touch-action: manipulation;
     }
-    
-    button:active {
-      background-color: #2980b9;
-      transform: scale(0.95);
-    }
-    
-    #up { grid-area: up; }
-    #left { grid-area: left; }
-    #right { grid-area: right; }
-    #down { grid-area: down; }
     
     .client-info {
       margin-bottom: 20px;
@@ -74,18 +73,24 @@
       font-size: 12px;
       color: #666;
     }
+    
+    .joystick-position {
+      margin-top: 10px;
+      font-size: 16px;
+      color: #333;
+    }
   </style>
 </head>
 <body>
-  <h1>Phone Controller</h1>
+  <h1>Vector Joystick Controller</h1>
   <div class="client-info" id="clientInfo">Connecting...</div>
-  <div class="controller">
-    <button id="up" ontouchstart="sendInput('UP')" onclick="sendInput('UP')">UP</button>
-    <button id="left" ontouchstart="sendInput('LEFT')" onclick="sendInput('LEFT')">LEFT</button>
-    <button id="right" ontouchstart="sendInput('RIGHT')" onclick="sendInput('RIGHT')">RIGHT</button>
-    <button id="down" ontouchstart="sendInput('DOWN')" onclick="sendInput('DOWN')">DOWN</button>
+  
+  <div class="joystick-container" id="joystickArea">
+    <div class="joystick-base"></div>
+    <div class="joystick-thumb" id="joystick"></div>
   </div>
   
+  <div class="joystick-position" id="joystickPosition">x: 0.00, y: 0.00</div>
   <div class="debug-info" id="debugInfo"></div>
   
   <script>
@@ -93,6 +98,134 @@
     let clientId = null;
     let eventLog = [];
     const maxLogEntries = 5;
+    
+    // Joystick variables
+    const joystickThumb = document.getElementById('joystick');
+    const joystickArea = document.getElementById('joystickArea');
+    const joystickPosition = document.getElementById('joystickPosition');
+    let isDragging = false;
+    let centerX, centerY;
+    let currentX = 0, currentY = 0;
+    let joystickInterval = null;
+    
+    // Initialize joystick positions
+    function initJoystick() {
+      const rect = joystickArea.getBoundingClientRect();
+      centerX = rect.width / 2;
+      centerY = rect.height / 2;
+      joystickThumb.style.left = centerX + 'px';
+      joystickThumb.style.top = centerY + 'px';
+    }
+    
+    // Setup joystick touch events
+    function setupJoystick() {
+      // Mouse events
+      joystickThumb.addEventListener('mousedown', startMoveJoystick);
+      document.addEventListener('mousemove', moveJoystick);
+      document.addEventListener('mouseup', stopMoveJoystick);
+      
+      // Touch events for mobile
+      joystickThumb.addEventListener('touchstart', startMoveJoystick);
+      document.addEventListener('touchmove', moveJoystick);
+      document.addEventListener('touchend', stopMoveJoystick);
+      
+      initJoystick();
+    }
+    
+    // Start moving the joystick
+    function startMoveJoystick(e) {
+      e.preventDefault();
+      isDragging = true;
+      
+      // Send inputs at a fixed interval while joystick is active
+      if (joystickInterval === null) {
+        joystickInterval = setInterval(sendJoystickVector, 100); // Send every 100ms
+      }
+    }
+    
+    // Move the joystick
+    function moveJoystick(e) {
+      if (!isDragging) return;
+      e.preventDefault();
+      
+      const rect = joystickArea.getBoundingClientRect();
+      
+      // Get touch/mouse position
+      let clientX, clientY;
+      if (e.type.startsWith('touch')) {
+        clientX = e.touches[0].clientX;
+        clientY = e.touches[0].clientY;
+      } else {
+        clientX = e.clientX;
+        clientY = e.clientY;
+      }
+      
+      // Calculate position relative to joystick area
+      let x = clientX - rect.left;
+      let y = clientY - rect.top;
+      
+      // Calculate distance from center
+      const dx = x - centerX;
+      const dy = y - centerY;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      const maxDistance = rect.width / 2 - joystickThumb.offsetWidth / 2;
+      
+      // If distance is greater than max, normalize to max
+      if (distance > maxDistance) {
+        x = centerX + (dx / distance) * maxDistance;
+        y = centerY + (dy / distance) * maxDistance;
+      }
+      
+      // Update joystick position
+      joystickThumb.style.left = x + 'px';
+      joystickThumb.style.top = y + 'px';
+      
+      // Calculate normalized vector (-1 to 1 on both axes)
+      currentX = (x - centerX) / maxDistance;
+      currentY = (y - centerY) / maxDistance;
+      
+      // Update position display
+      updatePositionDisplay();
+    }
+    
+    // Stop moving the joystick
+    function stopMoveJoystick(e) {
+      if (!isDragging) return;
+      e.preventDefault();
+      isDragging = false;
+      
+      // Return joystick to center
+      joystickThumb.style.left = centerX + 'px';
+      joystickThumb.style.top = centerY + 'px';
+      
+      // Reset vector
+      currentX = 0;
+      currentY = 0;
+      updatePositionDisplay();
+      
+      // Clear the interval
+      if (joystickInterval !== null) {
+        clearInterval(joystickInterval);
+        joystickInterval = null;
+      }
+      
+      // Send zero vector
+      sendJoystickVector();
+    }
+    
+    // Update the position display
+    function updatePositionDisplay() {
+      joystickPosition.textContent = `x: ${currentX.toFixed(2)}, y: ${currentY.toFixed(2)}`;
+    }
+    
+    // Send the current joystick vector
+    function sendJoystickVector() {
+      sendInput({
+        type: "vector",
+        x: currentX,
+        y: currentY
+      });
+    }
     
     // Debug function to log events
     function logEvent(event) {
@@ -125,14 +258,18 @@
       socket.emit("controllerInput", { action: "CONNECT" });
     });
 
-    function sendInput(action) {
+    function sendInput(data) {
       if (!clientId) {
         logEvent('Cannot send input - not connected');
         return;
       }
       
-      socket.emit("controllerInput", { action: action });
-      logEvent(`Sent: ${action}`);
+      socket.emit("controllerInput", data);
+      
+      // Only log vector messages occasionally to avoid flooding
+      if (data.type === "vector" && Math.random() < 0.1) {
+        logEvent(`Sent: (${data.x.toFixed(2)}, ${data.y.toFixed(2)})`);
+      }
     }
     
     // Handle connection events
@@ -159,8 +296,11 @@
       logEvent(`Reconnected after ${attemptNumber} attempts`);
     });
     
-    // Initial log
-    logEvent('Controller page loaded');
+    // Initialize joystick when page loads
+    window.addEventListener('load', () => {
+      setupJoystick();
+      logEvent('Controller page loaded');
+    });
   </script>
 </body>
 </html>
