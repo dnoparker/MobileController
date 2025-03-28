@@ -1,306 +1,339 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Phone Controller</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-  <style>
-    body {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      margin: 0;
-      font-family: Arial, sans-serif;
-      background-color: #f0f0f0;
-      touch-action: none; /* Prevent default touch actions */
-    }
-    
-    .joystick-container {
-      position: relative;
-      width: 200px;
-      height: 200px;
-      margin: 20px;
-      background-color: rgba(0, 0, 0, 0.1);
-      border-radius: 50%;
-      touch-action: none;
-    }
-    
-    .joystick-base {
-      position: absolute;
-      width: 100%;
-      height: 100%;
-      border-radius: 50%;
-      border: 2px solid #888;
-      box-sizing: border-box;
-    }
-    
-    .joystick-thumb {
-      position: absolute;
-      width: 80px;
-      height: 80px;
-      left: 50%;
-      top: 50%;
-      transform: translate(-50%, -50%);
-      background-color: #3498db;
-      border-radius: 50%;
-      cursor: pointer;
-      user-select: none;
-    }
-    
-    .client-info {
-      margin-bottom: 20px;
-      padding: 10px;
-      background-color: #f8f8f8;
-      border-radius: 5px;
-      font-size: 14px;
-      color: #333;
-    }
-    
-    .status-connected {
-      color: green;
-      font-weight: bold;
-    }
-    
-    .status-disconnected {
-      color: red;
-      font-weight: bold;
-    }
-    
-    .debug-info {
-      margin-top: 20px;
-      font-size: 12px;
-      color: #666;
-    }
-    
-    .joystick-position {
-      margin-top: 10px;
-      font-size: 16px;
-      color: #333;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mobile Controller</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            touch-action: none;
+            background-color: #222;
+            color: white;
+            font-family: Arial, sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        
+        .container {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            width: 100vw;
+        }
+        
+        h1 {
+            margin-bottom: 20px;
+            color: #4CAF50;
+        }
+        
+        .status {
+            margin-bottom: 30px;
+            font-size: 16px;
+            color: #aaa;
+        }
+        
+        .joystick-container {
+            position: relative;
+            width: 250px;
+            height: 250px;
+            border-radius: 50%;
+            background-color: rgba(255, 255, 255, 0.1);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: visible;
+            margin-bottom: 30px;
+        }
+        
+        .joystick-base {
+            position: absolute;
+            width: 250px;
+            height: 250px;
+            border-radius: 50%;
+            background-color: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .joystick-thumb {
+            position: absolute;
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background-color: #4CAF50;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+            transition: background-color 0.2s;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-weight: bold;
+        }
+        
+        .vector-display {
+            margin-top: 10px;
+            font-size: 14px;
+            color: #ddd;
+            height: 20px;
+        }
+        
+        .connection-info {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            font-size: 12px;
+            color: #777;
+        }
+    </style>
 </head>
 <body>
-  <h1>Vector Joystick Controller</h1>
-  <div class="client-info" id="clientInfo">Connecting...</div>
-  
-  <div class="joystick-container" id="joystickArea">
-    <div class="joystick-base"></div>
-    <div class="joystick-thumb" id="joystick"></div>
-  </div>
-  
-  <div class="joystick-position" id="joystickPosition">x: 0.00, y: 0.00</div>
-  <div class="debug-info" id="debugInfo"></div>
-  
-  <script>
-    const socket = io();
-    let clientId = null;
-    let eventLog = [];
-    const maxLogEntries = 5;
+    <div class="container">
+        <h1>Mobile Controller</h1>
+        <div class="status">Connecting...</div>
+        
+        <div class="joystick-container">
+            <div class="joystick-base"></div>
+            <div class="joystick-thumb">DRAG</div>
+        </div>
+        
+        <div class="vector-display">x: 0.00, y: 0.00</div>
+        
+        <div class="connection-info">
+            <div id="server-url"></div>
+            <div id="client-id">ID: Connecting...</div>
+        </div>
+    </div>
     
-    // Joystick variables
-    const joystickThumb = document.getElementById('joystick');
-    const joystickArea = document.getElementById('joystickArea');
-    const joystickPosition = document.getElementById('joystickPosition');
-    let isDragging = false;
-    let centerX, centerY;
-    let currentX = 0, currentY = 0;
-    let joystickInterval = null;
-    
-    // Initialize joystick positions
-    function initJoystick() {
-      const rect = joystickArea.getBoundingClientRect();
-      centerX = rect.width / 2;
-      centerY = rect.height / 2;
-      joystickThumb.style.left = centerX + 'px';
-      joystickThumb.style.top = centerY + 'px';
-    }
-    
-    // Setup joystick touch events
-    function setupJoystick() {
-      // Mouse events
-      joystickThumb.addEventListener('mousedown', startMoveJoystick);
-      document.addEventListener('mousemove', moveJoystick);
-      document.addEventListener('mouseup', stopMoveJoystick);
-      
-      // Touch events for mobile
-      joystickThumb.addEventListener('touchstart', startMoveJoystick);
-      document.addEventListener('touchmove', moveJoystick);
-      document.addEventListener('touchend', stopMoveJoystick);
-      
-      initJoystick();
-    }
-    
-    // Start moving the joystick
-    function startMoveJoystick(e) {
-      e.preventDefault();
-      isDragging = true;
-      
-      // Send inputs at a fixed interval while joystick is active
-      if (joystickInterval === null) {
-        joystickInterval = setInterval(sendJoystickVector, 100); // Send every 100ms
-      }
-    }
-    
-    // Move the joystick
-    function moveJoystick(e) {
-      if (!isDragging) return;
-      e.preventDefault();
-      
-      const rect = joystickArea.getBoundingClientRect();
-      
-      // Get touch/mouse position
-      let clientX, clientY;
-      if (e.type.startsWith('touch')) {
-        clientX = e.touches[0].clientX;
-        clientY = e.touches[0].clientY;
-      } else {
-        clientX = e.clientX;
-        clientY = e.clientY;
-      }
-      
-      // Calculate position relative to joystick area
-      let x = clientX - rect.left;
-      let y = clientY - rect.top;
-      
-      // Calculate distance from center
-      const dx = x - centerX;
-      const dy = y - centerY;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-      const maxDistance = rect.width / 2 - joystickThumb.offsetWidth / 2;
-      
-      // If distance is greater than max, normalize to max
-      if (distance > maxDistance) {
-        x = centerX + (dx / distance) * maxDistance;
-        y = centerY + (dy / distance) * maxDistance;
-      }
-      
-      // Update joystick position
-      joystickThumb.style.left = x + 'px';
-      joystickThumb.style.top = y + 'px';
-      
-      // Calculate normalized vector (-1 to 1 on both axes)
-      currentX = (x - centerX) / maxDistance;
-      currentY = (y - centerY) / maxDistance;
-      
-      // Update position display
-      updatePositionDisplay();
-    }
-    
-    // Stop moving the joystick
-    function stopMoveJoystick(e) {
-      if (!isDragging) return;
-      e.preventDefault();
-      isDragging = false;
-      
-      // Return joystick to center
-      joystickThumb.style.left = centerX + 'px';
-      joystickThumb.style.top = centerY + 'px';
-      
-      // Reset vector
-      currentX = 0;
-      currentY = 0;
-      updatePositionDisplay();
-      
-      // Clear the interval
-      if (joystickInterval !== null) {
-        clearInterval(joystickInterval);
-        joystickInterval = null;
-      }
-      
-      // Send zero vector
-      sendJoystickVector();
-    }
-    
-    // Update the position display
-    function updatePositionDisplay() {
-      joystickPosition.textContent = `x: ${currentX.toFixed(2)}, y: ${currentY.toFixed(2)}`;
-    }
-    
-    // Send the current joystick vector
-    function sendJoystickVector() {
-      sendInput({
-        type: "vector",
-        x: currentX,
-        y: currentY
-      });
-    }
-    
-    // Debug function to log events
-    function logEvent(event) {
-      const timestamp = new Date().toLocaleTimeString();
-      eventLog.unshift(`${timestamp}: ${event}`);
-      if (eventLog.length > maxLogEntries) {
-        eventLog.pop();
-      }
-      
-      document.getElementById('debugInfo').innerHTML = eventLog.join('<br>');
-    }
-    
-    // Update client info element
-    function updateClientInfo() {
-      const infoElement = document.getElementById('clientInfo');
-      if (clientId) {
-        infoElement.innerHTML = `Status: <span class="status-connected">Connected</span><br>ID: ${clientId}`;
-      } else {
-        infoElement.innerHTML = `Status: <span class="status-disconnected">Disconnected</span>`;
-      }
-    }
-    
-    // Receive client ID from server
-    socket.on('clientId', (data) => {
-      clientId = data.id;
-      updateClientInfo();
-      logEvent(`Connected with ID: ${clientId}`);
-      
-      // Send a test connection to make sure Unity registers us
-      socket.emit("controllerInput", { action: "CONNECT" });
-    });
-
-    function sendInput(data) {
-      if (!clientId) {
-        logEvent('Cannot send input - not connected');
-        return;
-      }
-      
-      socket.emit("controllerInput", data);
-      
-      // Only log vector messages occasionally to avoid flooding
-      if (data.type === "vector" && Math.random() < 0.1) {
-        logEvent(`Sent: (${data.x.toFixed(2)}, ${data.y.toFixed(2)})`);
-      }
-    }
-    
-    // Handle connection events
-    socket.on('connect', () => {
-      logEvent('Socket connected');
-      updateClientInfo();
-    });
-    
-    socket.on('disconnect', () => {
-      clientId = null;
-      updateClientInfo();
-      logEvent('Socket disconnected');
-    });
-    
-    socket.on('connect_error', (error) => {
-      logEvent(`Connection error: ${error.message}`);
-    });
-    
-    socket.on('reconnect_attempt', (attemptNumber) => {
-      logEvent(`Reconnect attempt: ${attemptNumber}`);
-    });
-    
-    socket.on('reconnect', (attemptNumber) => {
-      logEvent(`Reconnected after ${attemptNumber} attempts`);
-    });
-    
-    // Initialize joystick when page loads
-    window.addEventListener('load', () => {
-      setupJoystick();
-      logEvent('Controller page loaded');
-    });
-  </script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        // Connect to the server using Socket.IO
+        const socket = io();
+        
+        // Elements
+        const statusEl = document.querySelector('.status');
+        const joystickContainer = document.querySelector('.joystick-container');
+        const joystickThumb = document.querySelector('.joystick-thumb');
+        const vectorDisplay = document.querySelector('.vector-display');
+        const clientIdDisplay = document.getElementById('client-id');
+        const serverUrlDisplay = document.getElementById('server-url');
+        
+        // Track client ID
+        let clientId = null;
+        
+        // Joystick state
+        let joystickActive = false;
+        let joystickPosition = { x: 0, y: 0 };
+        let centerX = 0;
+        let centerY = 0;
+        let maxDistance = 0;
+        
+        // Auto-send interval
+        let sendInterval = null;
+        const SEND_INTERVAL_MS = 100; // Send position every 100ms when active
+        
+        // Connection status
+        socket.on('connect', () => {
+            clientId = socket.id;
+            statusEl.textContent = 'Connected';
+            statusEl.style.color = '#4CAF50';
+            clientIdDisplay.textContent = `ID: ${clientId}`;
+            serverUrlDisplay.textContent = `Server: ${window.location.host}`;
+            console.log('Connected with ID:', clientId);
+            
+            // Test message to ensure Unity receives it
+            socket.emit('playerInput', { 
+                action: 'CONNECT'
+            });
+        });
+        
+        socket.on('disconnect', () => {
+            statusEl.textContent = 'Disconnected';
+            statusEl.style.color = 'red';
+            clientIdDisplay.textContent = 'ID: Disconnected';
+            console.log('Disconnected from server');
+            
+            // Clear the send interval if active
+            if (sendInterval) {
+                clearInterval(sendInterval);
+                sendInterval = null;
+            }
+        });
+        
+        // Initialize joystick
+        function initJoystick() {
+            // Get joystick container dimensions and center position
+            const rect = joystickContainer.getBoundingClientRect();
+            centerX = rect.width / 2;
+            centerY = rect.height / 2;
+            
+            // Set max distance (radius of joystick container minus half thumb width)
+            maxDistance = (rect.width / 2) - (joystickThumb.clientWidth / 2);
+            
+            // Position the thumb initially in the center
+            joystickThumb.style.left = centerX - (joystickThumb.clientWidth / 2) + 'px';
+            joystickThumb.style.top = centerY - (joystickThumb.clientHeight / 2) + 'px';
+        }
+        
+        // Set up event listeners for joystick
+        function setupJoystickEvents() {
+            // Pointer down (touch start or mouse down)
+            joystickContainer.addEventListener('pointerdown', startJoystick);
+            
+            // Pointer move (touch move or mouse move)
+            document.addEventListener('pointermove', moveJoystick);
+            
+            // Pointer up (touch end or mouse up)
+            document.addEventListener('pointerup', endJoystick);
+            document.addEventListener('pointercancel', endJoystick);
+            
+            // If pointer leaves the window, end joystick
+            document.addEventListener('pointerleave', endJoystick);
+        }
+        
+        // Start joystick movement
+        function startJoystick(e) {
+            e.preventDefault();
+            joystickActive = true;
+            
+            // Change color to indicate active state
+            joystickThumb.style.backgroundColor = '#3d8c40';
+            
+            // Start continuous sending
+            if (!sendInterval) {
+                sendInterval = setInterval(sendCurrentVector, SEND_INTERVAL_MS);
+            }
+            
+            // Process the initial position
+            processJoystickPosition(e);
+        }
+        
+        // Process joystick movement
+        function moveJoystick(e) {
+            if (joystickActive) {
+                e.preventDefault();
+                processJoystickPosition(e);
+            }
+        }
+        
+        // End joystick movement
+        function endJoystick(e) {
+            if (joystickActive) {
+                e.preventDefault();
+                joystickActive = false;
+                
+                // Reset joystick position
+                joystickPosition = { x: 0, y: 0 };
+                
+                // Reset thumb position with a smooth transition
+                joystickThumb.style.transition = 'all 0.2s ease-out';
+                joystickThumb.style.left = centerX - (joystickThumb.clientWidth / 2) + 'px';
+                joystickThumb.style.top = centerY - (joystickThumb.clientHeight / 2) + 'px';
+                
+                // Reset color
+                joystickThumb.style.backgroundColor = '#4CAF50';
+                
+                // Update display
+                updateVectorDisplay(0, 0);
+                
+                // Send neutral position to stop movement
+                socket.emit('playerInput', {
+                    type: 'vector',
+                    x: 0,
+                    y: 0
+                });
+                
+                // Clear the send interval
+                if (sendInterval) {
+                    clearInterval(sendInterval);
+                    sendInterval = null;
+                }
+                
+                // Reset transition after a short delay
+                setTimeout(() => {
+                    joystickThumb.style.transition = '';
+                }, 200);
+            }
+        }
+        
+        // Calculate joystick position from event
+        function processJoystickPosition(e) {
+            // Get the joystick container position
+            const rect = joystickContainer.getBoundingClientRect();
+            
+            // Get the event position relative to the container
+            let clientX, clientY;
+            if (e.touches && e.touches.length > 0) {
+                // Touch event
+                clientX = e.touches[0].clientX;
+                clientY = e.touches[0].clientY;
+            } else {
+                // Mouse event
+                clientX = e.clientX;
+                clientY = e.clientY;
+            }
+            
+            // Calculate position relative to center
+            const relX = clientX - rect.left - centerX;
+            const relY = clientY - rect.top - centerY;
+            
+            // Calculate the distance from center
+            const distance = Math.sqrt(relX * relX + relY * relY);
+            
+            // Normalize vectors between -1 and 1
+            let normalizedX = relX / maxDistance;
+            let normalizedY = relY / maxDistance;
+            
+            // If the distance is greater than max, cap it
+            if (distance > maxDistance) {
+                const angle = Math.atan2(relY, relX);
+                normalizedX = Math.cos(angle);
+                normalizedY = Math.sin(angle);
+                
+                // Update thumb position to the edge of the allowed circle
+                joystickThumb.style.left = (centerX + maxDistance * normalizedX - joystickThumb.clientWidth / 2) + 'px';
+                joystickThumb.style.top = (centerY + maxDistance * normalizedY - joystickThumb.clientHeight / 2) + 'px';
+            } else {
+                // Update thumb to follow the pointer exactly
+                joystickThumb.style.left = (centerX + relX - joystickThumb.clientWidth / 2) + 'px';
+                joystickThumb.style.top = (centerY + relY - joystickThumb.clientHeight / 2) + 'px';
+            }
+            
+            // Store normalized vectors
+            joystickPosition.x = normalizedX;
+            joystickPosition.y = normalizedY;
+            
+            // Update the display
+            updateVectorDisplay(normalizedX, normalizedY);
+        }
+        
+        // Update vector display text
+        function updateVectorDisplay(x, y) {
+            vectorDisplay.textContent = `x: ${x.toFixed(2)}, y: ${y.toFixed(2)}`;
+        }
+        
+        // Send the current joystick vector to the server
+        function sendCurrentVector() {
+            if (joystickActive) {
+                socket.emit('playerInput', {
+                    type: 'vector',
+                    x: joystickPosition.x,
+                    y: joystickPosition.y
+                });
+            }
+        }
+        
+        // Initialize the controller when page is loaded
+        window.addEventListener('load', () => {
+            initJoystick();
+            setupJoystickEvents();
+            
+            // Prevent default touch actions to avoid scrolling
+            document.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+        });
+    </script>
 </body>
 </html>
