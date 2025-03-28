@@ -58,6 +58,22 @@
       font-size: 14px;
       color: #333;
     }
+    
+    .status-connected {
+      color: green;
+      font-weight: bold;
+    }
+    
+    .status-disconnected {
+      color: red;
+      font-weight: bold;
+    }
+    
+    .debug-info {
+      margin-top: 20px;
+      font-size: 12px;
+      color: #666;
+    }
   </style>
 </head>
 <body>
@@ -70,17 +86,32 @@
     <button id="down" ontouchstart="sendInput('DOWN')" onclick="sendInput('DOWN')">DOWN</button>
   </div>
   
+  <div class="debug-info" id="debugInfo"></div>
+  
   <script>
     const socket = io();
     let clientId = null;
+    let eventLog = [];
+    const maxLogEntries = 5;
+    
+    // Debug function to log events
+    function logEvent(event) {
+      const timestamp = new Date().toLocaleTimeString();
+      eventLog.unshift(`${timestamp}: ${event}`);
+      if (eventLog.length > maxLogEntries) {
+        eventLog.pop();
+      }
+      
+      document.getElementById('debugInfo').innerHTML = eventLog.join('<br>');
+    }
     
     // Update client info element
     function updateClientInfo() {
       const infoElement = document.getElementById('clientInfo');
       if (clientId) {
-        infoElement.textContent = `Connected as: ${clientId}`;
+        infoElement.innerHTML = `Status: <span class="status-connected">Connected</span><br>ID: ${clientId}`;
       } else {
-        infoElement.textContent = 'Connecting...';
+        infoElement.innerHTML = `Status: <span class="status-disconnected">Disconnected</span>`;
       }
     }
     
@@ -88,24 +119,48 @@
     socket.on('clientId', (data) => {
       clientId = data.id;
       updateClientInfo();
-      console.log('Connected with ID:', clientId);
+      logEvent(`Connected with ID: ${clientId}`);
+      
+      // Send a test connection to make sure Unity registers us
+      socket.emit("controllerInput", { action: "CONNECT" });
     });
 
     function sendInput(action) {
-      socket.emit("controllerInput", { 
-        action: action
-      });
+      if (!clientId) {
+        logEvent('Cannot send input - not connected');
+        return;
+      }
+      
+      socket.emit("controllerInput", { action: action });
+      logEvent(`Sent: ${action}`);
     }
     
     // Handle connection events
     socket.on('connect', () => {
+      logEvent('Socket connected');
       updateClientInfo();
     });
     
     socket.on('disconnect', () => {
       clientId = null;
       updateClientInfo();
+      logEvent('Socket disconnected');
     });
+    
+    socket.on('connect_error', (error) => {
+      logEvent(`Connection error: ${error.message}`);
+    });
+    
+    socket.on('reconnect_attempt', (attemptNumber) => {
+      logEvent(`Reconnect attempt: ${attemptNumber}`);
+    });
+    
+    socket.on('reconnect', (attemptNumber) => {
+      logEvent(`Reconnected after ${attemptNumber} attempts`);
+    });
+    
+    // Initial log
+    logEvent('Controller page loaded');
   </script>
 </body>
 </html>

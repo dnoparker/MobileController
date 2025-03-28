@@ -24,8 +24,12 @@ io.on("connection", (socket) => {
   // Send the client their ID
   socket.emit("clientId", { id: socket.id });
   
-  // Broadcast to all that a new controller has connected
-  socket.broadcast.emit("controllerConnected", { clientId: socket.id });
+  // Broadcast to Unity that a new controller has connected
+  // We send to everyone (including sender) to ensure Unity receives it
+  io.emit("controllerConnected", { clientId: socket.id });
+  
+  // Log all currently connected controllers
+  console.log("Currently connected controllers:", Array.from(connectedControllers));
 
   socket.on("controllerInput", (data) => {
     // Forward input to Unity with client ID
@@ -33,7 +37,7 @@ io.on("connection", (socket) => {
       ...data,
       clientId: socket.id
     };
-    socket.broadcast.emit("inputToUnity", inputData);
+    io.emit("inputToUnity", inputData);
     console.log(`Input from ${socket.id}: ${data.action}`);
   });
 
@@ -45,6 +49,17 @@ io.on("connection", (socket) => {
     
     // Broadcast to all that a controller has disconnected
     io.emit("controllerDisconnected", { clientId: socket.id });
+    
+    // Log remaining connected controllers
+    console.log("Remaining connected controllers:", Array.from(connectedControllers));
+  });
+});
+
+// Route to get all connected controllers
+app.get("/api/controllers", (req, res) => {
+  res.json({
+    controllers: Array.from(connectedControllers),
+    count: connectedControllers.size
   });
 });
 
