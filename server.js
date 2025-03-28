@@ -12,11 +12,20 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.static("public"));
 
+// Keep track of connected controllers
+const connectedControllers = new Set();
+
 io.on("connection", (socket) => {
   console.log("New controller connected:", socket.id);
   
+  // Add to connected controllers set
+  connectedControllers.add(socket.id);
+  
   // Send the client their ID
   socket.emit("clientId", { id: socket.id });
+  
+  // Broadcast to all that a new controller has connected
+  socket.broadcast.emit("controllerConnected", { clientId: socket.id });
 
   socket.on("controllerInput", (data) => {
     // Forward input to Unity with client ID
@@ -30,6 +39,12 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     console.log("Disconnected:", socket.id);
+    
+    // Remove from connected controllers set
+    connectedControllers.delete(socket.id);
+    
+    // Broadcast to all that a controller has disconnected
+    io.emit("controllerDisconnected", { clientId: socket.id });
   });
 });
 
