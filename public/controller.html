@@ -2,17 +2,110 @@
 <html>
 <head>
   <title>Phone Controller</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <style>
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background-color: #f0f0f0;
+    }
+    
+    .controller {
+      display: grid;
+      grid-template-areas:
+        ". up ."
+        "left . right"
+        ". down .";
+      gap: 10px;
+      margin: 20px;
+    }
+    
+    button {
+      width: 80px;
+      height: 80px;
+      font-size: 18px;
+      font-weight: bold;
+      border-radius: 50%;
+      border: none;
+      background-color: #3498db;
+      color: white;
+      cursor: pointer;
+      user-select: none;
+      touch-action: manipulation;
+    }
+    
+    button:active {
+      background-color: #2980b9;
+      transform: scale(0.95);
+    }
+    
+    #up { grid-area: up; }
+    #left { grid-area: left; }
+    #right { grid-area: right; }
+    #down { grid-area: down; }
+    
+    .client-info {
+      margin-bottom: 20px;
+      padding: 10px;
+      background-color: #f8f8f8;
+      border-radius: 5px;
+      font-size: 14px;
+      color: #333;
+    }
+  </style>
 </head>
 <body>
-  <button onclick="sendInput('LEFT')">LEFT</button>
-  <button onclick="sendInput('RIGHT')">RIGHT</button>
+  <h1>Phone Controller</h1>
+  <div class="client-info" id="clientInfo">Connecting...</div>
+  <div class="controller">
+    <button id="up" ontouchstart="sendInput('UP')" onclick="sendInput('UP')">UP</button>
+    <button id="left" ontouchstart="sendInput('LEFT')" onclick="sendInput('LEFT')">LEFT</button>
+    <button id="right" ontouchstart="sendInput('RIGHT')" onclick="sendInput('RIGHT')">RIGHT</button>
+    <button id="down" ontouchstart="sendInput('DOWN')" onclick="sendInput('DOWN')">DOWN</button>
+  </div>
+  
   <script>
     const socket = io();
+    let clientId = null;
+    
+    // Update client info element
+    function updateClientInfo() {
+      const infoElement = document.getElementById('clientInfo');
+      if (clientId) {
+        infoElement.textContent = `Connected as: ${clientId}`;
+      } else {
+        infoElement.textContent = 'Connecting...';
+      }
+    }
+    
+    // Receive client ID from server
+    socket.on('clientId', (data) => {
+      clientId = data.id;
+      updateClientInfo();
+      console.log('Connected with ID:', clientId);
+    });
 
     function sendInput(action) {
-      socket.emit("controllerInput", { action: action });
+      socket.emit("controllerInput", { 
+        action: action
+      });
     }
+    
+    // Handle connection events
+    socket.on('connect', () => {
+      updateClientInfo();
+    });
+    
+    socket.on('disconnect', () => {
+      clientId = null;
+      updateClientInfo();
+    });
   </script>
 </body>
 </html>

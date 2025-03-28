@@ -14,10 +14,18 @@ app.use(express.static("public"));
 
 io.on("connection", (socket) => {
   console.log("New controller connected:", socket.id);
+  
+  // Send the client their ID
+  socket.emit("clientId", { id: socket.id });
 
   socket.on("controllerInput", (data) => {
-    // Forward input to Unity
-    socket.broadcast.emit("inputToUnity", data);
+    // Forward input to Unity with client ID
+    const inputData = {
+      ...data,
+      clientId: socket.id
+    };
+    socket.broadcast.emit("inputToUnity", inputData);
+    console.log(`Input from ${socket.id}: ${data.action}`);
   });
 
   socket.on("disconnect", () => {
