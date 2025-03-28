@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Phone Controller</title>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+</head>
+<body>
+  <button onclick="sendInput('LEFT')">LEFT</button>
+  <button onclick="sendInput('RIGHT')">RIGHT</button>
+  <script>
+    const socket = io();
+
+    function sendInput(action) {
+      socket.emit("controllerInput", { action: action });
+    }
+  </script>
+</body>
+</html>
