@@ -94,6 +94,54 @@
             font-size: 12px;
             color: #777;
         }
+        
+        .ping-button {
+            margin-top: 20px;
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            border: none;
+            border-radius: 5px;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        
+        .ping-button:hover {
+            background-color: #3d8c40;
+        }
+        
+        .ping-button:active {
+            transform: scale(0.95);
+        }
+        
+        .inactivity-indicator {
+            margin-top: 15px;
+            font-size: 14px;
+            padding: 5px 10px;
+            border-radius: 4px;
+            transition: all 0.3s ease;
+            display: none; /* Initially hidden */
+        }
+        
+        .inactivity-warning {
+            background-color: rgba(255, 165, 0, 0.2);
+            color: orange;
+            border: 1px solid orange;
+        }
+        
+        .inactivity-danger {
+            background-color: rgba(255, 0, 0, 0.2);
+            color: red;
+            border: 1px solid red;
+            animation: pulse 1s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 0.7; }
+            50% { opacity: 1; }
+            100% { opacity: 0.7; }
+        }
     </style>
 </head>
 <body>
@@ -108,6 +156,10 @@
         
         <div class="vector-display">x: 0.00, y: 0.00</div>
         <div class="persistent-id">Persistent ID: -</div>
+        
+        <div class="inactivity-indicator">You'll be disconnected due to inactivity in <span class="countdown">60</span>s</div>
+        
+        <button class="ping-button">PING</button>
         
         <div class="connection-info">
             <div id="server-url"></div>
@@ -128,10 +180,18 @@
         const clientIdDisplay = document.getElementById('client-id');
         const serverUrlDisplay = document.getElementById('server-url');
         const persistentIdEl = document.querySelector('.persistent-id');
+        const pingButton = document.querySelector('.ping-button');
+        const inactivityIndicator = document.querySelector('.inactivity-indicator');
+        const countdownEl = document.querySelector('.countdown');
         
         // Track client ID and persistent ID
         let clientId = null;
         let persistentId = localStorage.getItem('persistentPlayerId');
+        
+        // Inactivity tracking
+        const INACTIVITY_TIMEOUT = 60; // Should match the server setting
+        let lastActivityTime = Date.now();
+        let inactivityTimer = null;
         
         // Display persistent ID if available
         if (persistentId) {
@@ -149,6 +209,73 @@
         let sendInterval = null;
         const SEND_INTERVAL_MS = 100; // Send position every 100ms when active
         
+        // Start tracking inactivity
+        function startInactivityTracking() {
+            // Reset the timer
+            if (inactivityTimer) {
+                clearInterval(inactivityTimer);
+            }
+            
+            lastActivityTime = Date.now();
+            
+            // Create a timer that updates every second
+            inactivityTimer = setInterval(() => {
+                const inactiveTime = Math.floor((Date.now() - lastActivityTime) / 1000);
+                const remainingTime = INACTIVITY_TIMEOUT - inactiveTime;
+                
+                // Update the countdown
+                if (countdownEl) {
+                    countdownEl.textContent = remainingTime;
+                }
+                
+                // Show warning when less than 20 seconds remaining
+                if (remainingTime <= 20 && remainingTime > 10) {
+                    inactivityIndicator.className = 'inactivity-indicator inactivity-warning';
+                    inactivityIndicator.style.display = 'block';
+                } 
+                // Show danger when less than 10 seconds remaining
+                else if (remainingTime <= 10) {
+                    inactivityIndicator.className = 'inactivity-indicator inactivity-danger';
+                    inactivityIndicator.style.display = 'block';
+                }
+                // Hide indicator if more than 20 seconds remaining
+                else {
+                    inactivityIndicator.style.display = 'none';
+                }
+            }, 1000);
+        }
+        
+        // Reset the inactivity timer
+        function resetInactivityTimer() {
+            lastActivityTime = Date.now();
+            
+            // Hide the warning/danger indicator
+            inactivityIndicator.style.display = 'none';
+        }
+        
+        // Send a ping to keep the connection alive
+        function sendPing() {
+            if (socket && socket.connected) {
+                socket.emit('playerInput', { 
+                    action: 'PING',
+                    persistentId: persistentId
+                });
+                
+                // Provide visual feedback
+                pingButton.textContent = 'PINGED!';
+                pingButton.style.backgroundColor = '#2b6f2e';
+                
+                // Reset button after a short delay
+                setTimeout(() => {
+                    pingButton.textContent = 'PING';
+                    pingButton.style.backgroundColor = '#4CAF50';
+                }, 500);
+                
+                // Reset the inactivity timer
+                resetInactivityTimer();
+            }
+        }
+        
         // Connection status
         socket.on('connect', () => {
             clientId = socket.id;
@@ -157,6 +284,9 @@
             clientIdDisplay.textContent = `ID: ${clientId}`;
             serverUrlDisplay.textContent = `Server: ${window.location.host}`;
             console.log('Connected with ID:', clientId);
+            
+            // Start tracking inactivity
+            startInactivityTracking();
             
             // If we have a persistentId, send it along with our current ID
             if (persistentId) {
@@ -201,6 +331,15 @@
                 clearInterval(sendInterval);
                 sendInterval = null;
             }
+            
+            // Clear inactivity timer
+            if (inactivityTimer) {
+                clearInterval(inactivityTimer);
+                inactivityTimer = null;
+            }
+            
+            // Hide inactivity indicator
+            inactivityIndicator.style.display = 'none';
         });
         
         // Listen for reconnection success
@@ -217,6 +356,9 @@
                     persistentId: persistentId
                 });
             }
+            
+            // Start tracking inactivity again
+            startInactivityTracking();
         });
         
         // Initialize joystick
@@ -248,6 +390,9 @@
             
             // If pointer leaves the window, end joystick
             document.addEventListener('pointerleave', endJoystick);
+            
+            // Add ping button click handler
+            pingButton.addEventListener('click', sendPing);
         }
         
         // Start joystick movement
@@ -265,6 +410,9 @@
             
             // Process the initial position
             processJoystickPosition(e);
+            
+            // Reset inactivity timer
+            resetInactivityTimer();
         }
         
         // Process joystick movement
@@ -272,6 +420,9 @@
             if (joystickActive) {
                 e.preventDefault();
                 processJoystickPosition(e);
+                
+                // Reset inactivity timer
+                resetInactivityTimer();
             }
         }
         
@@ -313,6 +464,9 @@
                 setTimeout(() => {
                     joystickThumb.style.transition = '';
                 }, 200);
+                
+                // Reset inactivity timer
+                resetInactivityTimer();
             }
         }
         
@@ -381,6 +535,9 @@
                     y: joystickPosition.y,
                     persistentId: persistentId
                 });
+                
+                // Reset inactivity timer
+                resetInactivityTimer();
             }
         }
         

@@ -28,12 +28,18 @@ io.on("connection", (socket) => {
   clients.set(socket.id, { 
     connected: true,
     persistentId: null,
-    reconnected: false
+    reconnected: false,
+    lastActivity: Date.now() // Track last activity time
   });
   
   // Handle player reconnection with persistent ID
   socket.on("playerReconnect", (data) => {
     console.log(`Reconnection attempt from ${socket.id} with previous ID: ${data.previousId}`);
+    
+    // Update last activity time
+    if (clients.has(socket.id)) {
+      clients.get(socket.id).lastActivity = Date.now();
+    }
     
     // Store the persistent ID with this socket
     clients.get(socket.id).persistentId = data.previousId;
@@ -67,8 +73,27 @@ io.on("connection", (socket) => {
   
   // Process controller input messages
   socket.on("playerInput", (data) => {
+    // Update last activity time for this client
+    if (clients.has(socket.id)) {
+      clients.get(socket.id).lastActivity = Date.now();
+    }
+    
     // Log the input data we're receiving from the controller
     console.log(`Input from ${socket.id}:`, data);
+    
+    // Handle special PING action (used to reset inactivity timer)
+    if (data.action === "PING") {
+      console.log(`Ping received from ${socket.id}`);
+      
+      // Forward ping to Unity to reset inactivity timer there as well
+      io.emit("playerPing", {
+        clientId: socket.id,
+        persistentId: data.persistentId || clients.get(socket.id)?.persistentId
+      });
+      
+      // Don't process further as it's not a movement command
+      return;
+    }
     
     // Store the persistent ID with this socket if provided
     if (data.persistentId && clients.has(socket.id)) {
