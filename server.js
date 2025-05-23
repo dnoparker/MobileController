@@ -17,8 +17,41 @@ app.use(express.static(path.join(__dirname, "public")));
 // Store connected clients with more detailed information
 const clients = new Map();
 
-// Store persistent player mapping (persistentId -> socketId)
+// Store persistent player mapping with timestamps for cleanup
+// Structure: { persistentId: { socketId: string, lastUsed: timestamp } }
 const persistentPlayers = new Map();
+
+// Cleanup settings for persistent players
+const PERSISTENT_CLEANUP_INTERVAL = 5 * 60 * 1000; // Check every 5 minutes
+const PERSISTENT_EXPIRY_TIME = 10 * 60 * 1000; // Remove after 10 minutes of inactivity
+
+// Cleanup function for old persistent player mappings
+function cleanupPersistentPlayers() {
+  const now = Date.now();
+  const toDelete = [];
+  
+  for (const [persistentId, data] of persistentPlayers.entries()) {
+    if (now - data.lastUsed > PERSISTENT_EXPIRY_TIME) {
+      toDelete.push(persistentId);
+    }
+  }
+  
+  if (toDelete.length > 0) {
+    console.log(`Cleaning up ${toDelete.length} expired persistent player mappings`);
+    toDelete.forEach(id => persistentPlayers.delete(id));
+  }
+}
+
+// Start periodic cleanup
+setInterval(cleanupPersistentPlayers, PERSISTENT_CLEANUP_INTERVAL);
+
+// Function to log server statistics
+function logServerStats() {
+  console.log(`Server Stats - Connected clients: ${clients.size}, Persistent mappings: ${persistentPlayers.size}`);
+}
+
+// Log stats every 30 minutes
+setInterval(logServerStats, 30 * 60 * 1000);
 
 // Socket.io connection handling
 io.on("connection", (socket) => {
@@ -44,8 +77,11 @@ io.on("connection", (socket) => {
     // Store the persistent ID with this socket
     clients.get(socket.id).persistentId = data.previousId;
     
-    // Update the persistent player mapping
-    persistentPlayers.set(data.previousId, socket.id);
+    // Update the persistent player mapping with timestamp
+    persistentPlayers.set(data.previousId, {
+      socketId: socket.id,
+      lastUsed: Date.now()
+    });
     
     // Notify Unity about the reconnection
     io.emit("playerReconnect", { 
@@ -91,6 +127,12 @@ io.on("connection", (socket) => {
         persistentId: data.persistentId || clients.get(socket.id)?.persistentId
       });
       
+      // Update persistent player mapping timestamp if we have one
+      const persistentId = data.persistentId || clients.get(socket.id)?.persistentId;
+      if (persistentId && persistentPlayers.has(persistentId)) {
+        persistentPlayers.get(persistentId).lastUsed = Date.now();
+      }
+      
       // Don't process further as it's not a movement command
       return;
     }
@@ -98,7 +140,10 @@ io.on("connection", (socket) => {
     // Store the persistent ID with this socket if provided
     if (data.persistentId && clients.has(socket.id)) {
       clients.get(socket.id).persistentId = data.persistentId;
-      persistentPlayers.set(data.persistentId, socket.id);
+      persistentPlayers.set(data.persistentId, {
+        socketId: socket.id,
+        lastUsed: Date.now()
+      });
     }
     
     // Forward the input to Unity with client ID and persistent ID
@@ -125,11 +170,15 @@ io.on("connection", (socket) => {
     // Get client data
     const clientData = clients.get(socket.id);
     if (clientData) {
-      // Don't remove from persistentPlayers map so we can reconnect later
-      
       // Log the persistent ID if we have one
       if (clientData.persistentId) {
         console.log(`Player with persistent ID ${clientData.persistentId} disconnected`);
+        
+        // Update the last used timestamp for the persistent mapping
+        // but don't remove it yet - allow for reconnection
+        if (persistentPlayers.has(clientData.persistentId)) {
+          persistentPlayers.get(clientData.persistentId).lastUsed = Date.now();
+        }
       }
       
       // Remove from clients map
@@ -151,7 +200,21 @@ app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "controller.html"));
 });
 
+// Health check endpoint with server stats
+app.get("/health", (req, res) => {
+  const stats = {
+    status: "healthy",
+    timestamp: new Date().toISOString(),
+    connectedClients: clients.size,
+    persistentMappings: persistentPlayers.size,
+    uptime: process.uptime(),
+    memoryUsage: process.memoryUsage()
+  };
+  res.json(stats);
+});
+
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Controller URL: http://localhost:${PORT}`);
+  console.log(`Health check: http://localhost:${PORT}/health`);
 });
