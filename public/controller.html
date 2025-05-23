@@ -207,7 +207,7 @@
         
         // Auto-send interval
         let sendInterval = null;
-        const SEND_INTERVAL_MS = 100; // Send position every 100ms when active
+        const SEND_INTERVAL_MS = 150; // Send position every 150ms when active (reduced from 100ms since we have smooth interpolation)
         
         // Start tracking inactivity
         function startInactivityTracking() {
