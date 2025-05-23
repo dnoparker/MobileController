@@ -184,19 +184,19 @@
         const inactivityIndicator = document.querySelector('.inactivity-indicator');
         const countdownEl = document.querySelector('.countdown');
         
-        // Track client ID and persistent ID
-        let clientId = null;
-        let persistentId = localStorage.getItem('persistentPlayerId');
+        // Track client ID and player ID
+        let socketId = null;
+        let playerId = localStorage.getItem('playerId');
+        
+        // Display player ID if available
+        if (playerId) {
+            persistentIdEl.textContent = `Player ID: ${playerId}`;
+        }
         
         // Inactivity tracking
         const INACTIVITY_TIMEOUT = 60; // Should match the server setting
         let lastActivityTime = Date.now();
         let inactivityTimer = null;
-        
-        // Display persistent ID if available
-        if (persistentId) {
-            persistentIdEl.textContent = `Persistent ID: ${persistentId}`;
-        }
         
         // Joystick state
         let joystickActive = false;
@@ -255,10 +255,9 @@
         
         // Send a ping to keep the connection alive
         function sendPing() {
-            if (socket && socket.connected) {
+            if (socket && socket.connected && playerId) {
                 socket.emit('playerInput', { 
-                    action: 'PING',
-                    persistentId: persistentId
+                    action: 'PING'
                 });
                 
                 // Provide visual feedback
@@ -278,52 +277,41 @@
         
         // Connection status
         socket.on('connect', () => {
-            clientId = socket.id;
-            statusEl.textContent = 'Connected';
-            statusEl.style.color = '#4CAF50';
-            clientIdDisplay.textContent = `ID: ${clientId}`;
+            socketId = socket.id;
+            statusEl.textContent = 'Requesting Player ID...';
+            statusEl.style.color = '#FFA500';
+            clientIdDisplay.textContent = `Socket: ${socketId}`;
             serverUrlDisplay.textContent = `Server: ${window.location.host}`;
-            console.log('Connected with ID:', clientId);
+            console.log('Connected with socket ID:', socketId);
+            
+            // Request player ID from server
+            socket.emit('requestPlayerId', { 
+                requestedPlayerId: playerId // Send stored player ID for reconnection
+            });
+        });
+        
+        // Handle player ID assignment
+        socket.on('playerIdAssigned', (data) => {
+            playerId = data.playerId;
+            
+            // Store player ID for future reconnections
+            localStorage.setItem('playerId', playerId);
+            persistentIdEl.textContent = `Player ID: ${playerId}`;
+            
+            statusEl.textContent = data.isReconnection ? 'Reconnected' : 'Connected';
+            statusEl.style.color = '#4CAF50';
+            
+            console.log(`Player ID assigned: ${playerId} (${data.isReconnection ? 'reconnection' : 'new'})`);
             
             // Start tracking inactivity
             startInactivityTracking();
-            
-            // If we have a persistentId, send it along with our current ID
-            if (persistentId) {
-                console.log(`Reconnecting with persistent ID: ${persistentId}`);
-                socket.emit('playerReconnect', { 
-                    previousId: persistentId,
-                    currentId: clientId
-                });
-            } else {
-                // First time connection - generate a persistent ID
-                persistentId = generatePersistentId();
-                localStorage.setItem('persistentPlayerId', persistentId);
-                persistentIdEl.textContent = `Persistent ID: ${persistentId}`;
-                console.log(`Generated new persistent ID: ${persistentId}`);
-                
-                // Send initial connection with the persistent ID
-                socket.emit('playerInput', { 
-                    action: 'CONNECT',
-                    persistentId: persistentId
-                });
-            }
         });
         
-        // Generate a random persistent ID
-        function generatePersistentId() {
-            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-            let id = 'p_';
-            for (let i = 0; i < 12; i++) {
-                id += chars.charAt(Math.floor(Math.random() * chars.length));
-            }
-            return id;
-        }
-        
+        // Handle disconnection
         socket.on('disconnect', () => {
             statusEl.textContent = 'Disconnected';
             statusEl.style.color = 'red';
-            clientIdDisplay.textContent = 'ID: Disconnected';
+            clientIdDisplay.textContent = 'Socket: Disconnected';
             console.log('Disconnected from server');
             
             // Clear the send interval if active
@@ -340,25 +328,6 @@
             
             // Hide inactivity indicator
             inactivityIndicator.style.display = 'none';
-        });
-        
-        // Listen for reconnection success
-        socket.on('reconnectionStatus', (data) => {
-            if (data.success) {
-                console.log(`Successfully reconnected to player with ID: ${data.playerId}`);
-                statusEl.textContent = 'Reconnected';
-                statusEl.style.color = '#4CAF50';
-            } else {
-                console.log(`Failed to reconnect to previous player: ${data.message}`);
-                // If reconnection failed, treat as a new connection
-                socket.emit('playerInput', { 
-                    action: 'CONNECT',
-                    persistentId: persistentId
-                });
-            }
-            
-            // Start tracking inactivity again
-            startInactivityTracking();
         });
         
         // Initialize joystick
@@ -450,8 +419,7 @@
                 socket.emit('playerInput', {
                     type: 'vector',
                     x: 0,
-                    y: 0,
-                    persistentId: persistentId
+                    y: 0
                 });
                 
                 // Clear the send interval
@@ -532,8 +500,7 @@
                 socket.emit('playerInput', {
                     type: 'vector',
                     x: joystickPosition.x,
-                    y: joystickPosition.y,
-                    persistentId: persistentId
+                    y: joystickPosition.y
                 });
                 
                 // Reset inactivity timer
